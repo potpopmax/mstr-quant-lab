@@ -1,0 +1,16 @@
+{
+  "name": "my-ibkr-plugin",
+  "version": "1.0.0",
+  "manifest": {
+    "host_permissions": ["<all_urls>"]
+  },
+  "scripts": {
+    "dev": "plasmo dev",
+    "build": "plasmo build",
+    "package": "plasmo package"
+  },
+  "dependencies": {
+    "plasmo": "0.90.5",
+    "vue": "^3.5.28"
+  }
+}

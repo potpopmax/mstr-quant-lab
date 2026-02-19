@@ -1,0 +1,23 @@
+{
+  "extends": "plasmo/templates/tsconfig.base",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "~*": ["./*"]
+    },
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "moduleResolution": "node",
+    "jsx": "preserve",
+    "strict": true,
+    "allowJs": true
+  },
+  "include": [
+    ".plasmo/index.d.ts",
+    "./**/*.ts",
+    "./**/*.tsx",
+    "./**/*.vue"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}
