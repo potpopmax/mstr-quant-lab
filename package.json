@@ -1,8 +1,16 @@
 {
-  "name": "my-ibkr-plugin",
+  "name": "mstr-quant-pro",
+  "displayName": "MSTR Quant Pro",
   "version": "1.0.0",
   "manifest": {
-    "host_permissions": ["<all_urls>"]
+    "host_permissions": [
+      "https://api.binance.com/*",
+      "https://query1.finance.yahoo.com/*",
+      "https://query2.finance.yahoo.com/*"
+    ],
+    "permissions": [
+      "storage"
+    ]
   },
   "scripts": {
     "dev": "plasmo dev",

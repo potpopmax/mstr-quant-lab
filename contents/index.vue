@@ -1,243 +1,219 @@
-<script>
-export const config = {
-    matches: ["<all_urls>"]
-}
-</script>
-
-<script setup>
-import { onMounted, onUnmounted, ref, computed } from "vue"
-
-// 状态控制
-const isVisible = ref(true) // 控制组件是否在页面显示
-const btcPrice = ref(0)
-const mstrPrice = ref(0)
-const ratio = ref(0.0151)
-const lastUpdate = ref("--:--:--")
-
-// 计算溢价
-const premium = computed(() => {
-    if (btcPrice.value > 0 && mstrPrice.value > 0) {
-        const intrinsicValue = btcPrice.value * ratio.value
-        return ((mstrPrice.value / intrinsicValue) - 1) * 100
-    }
-    return 0
-})
-
-// 手动关闭逻辑
-const closePanel = () => {
-    isVisible.value = false
-    // 可选：如果想让用户刷新前都不再出现，可以记录在 session 中
-    sessionStorage.setItem('mstr_panel_closed', 'true')
-}
-
-// 获取数据逻辑
-let timer = null
-const updateData = async () => {
-    if (!isVisible.value) return
-    try {
-        const res = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT")
-        const data = await res.json()
-        if (data.price) btcPrice.value = parseFloat(data.price)
-
-        const title = document.title
-        const titleMatch = title.match(/([\d,.]+)/)
-        if (titleMatch && title.toUpperCase().includes('MSTR')) {
-            mstrPrice.value = parseFloat(titleMatch[1].replace(/,/g, ''))
-        } else if (mstrPrice.value === 0) {
-            mstrPrice.value = 1850.50
-        }
-        lastUpdate.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-    } catch (e) { console.log("Syncing...") }
-}
-
-onMounted(() => {
-    // 检查是否手动关闭过
-    if (sessionStorage.getItem('mstr_panel_closed') === 'true') {
-        isVisible.value = false
-        return
-    }
-
-    updateData()
-    timer = setInterval(updateData, 5000)
-})
-
-// 核心：当脚本卸载（如关闭插件）时，彻底清理
-onUnmounted(() => {
-    if (timer) clearInterval(timer)
-})
-</script>
-
 <template>
-    <Transition name="fade">
-        <div v-if="isVisible" class="mstr-card-pro">
-            <button class="close-btn" @click="closePanel">×</button>
-
-            <div class="mstr-header">
-                <div class="brand">MSTR <span class="gold">QUANT</span></div>
-                <div class="upgrade-btn" @click="window.open('你的收款链接')">UPGRADE</div>
-            </div>
-
-            <div class="price-section">
-                <div class="row"><span>MSTR Price</span><span class="num">${{ mstrPrice.toFixed(2) }}</span></div>
-                <div class="row"><span>BTC Price</span><span class="num">${{ btcPrice.toLocaleString() }}</span></div>
-            </div>
-
-            <div class="premium-box" :class="{ 'risk': premium > 35 }">
-                <div class="p-title">EST. MARKET PREMIUM</div>
-                <div class="p-value">{{ premium.toFixed(2) }}%</div>
-                <div class="p-progress">
-                    <div class="p-bar" :style="{ width: Math.min(Math.max(premium, 0), 100) + '%' }"></div>
+    <div v-if="isVisible" class="mstr-v3-container">
+        <div v-if="!isCollapsed" class="mstr-v3-card">
+            <div class="mstr-v3-header">
+                <span class="mstr-v3-logo">MSTR<span class="gold">QUANT</span></span>
+                <div class="mstr-v3-controls">
+                    <span v-if="isPro" class="vip-badge">PRO ACTIVE</span>
+                    <button class="close-btn" @click="isCollapsed = true">✕</button>
                 </div>
             </div>
 
-            <div class="footer">
-                <span>Ratio: {{ ratio }}</span>
-                <span>{{ lastUpdate }}</span>
+            <div class="mstr-v3-body">
+                <div class="label">实时溢价 (动态计算)</div>
+                <div :class="['premium-val', { 'error-state': !connOk }]">
+                    {{ connOk ? premium + '%' : '---' }}
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-label">MSTR 股价</span>
+                        <span class="stat-value">${{ mstrPrice }}</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">BTC 价格</span>
+                        <span class="stat-value">${{ btcPrice }}</span>
+                    </div>
+                </div>
+
+                <div v-if="isPro" class="ai-box-v3">
+                    <div class="ai-title">✨ AI 实时内参</div>
+                    <p>{{ aiAdvice }}</p>
+                </div>
+
+                <div v-if="!isPro" class="pay-banner">
+                    🔒 系统检测到参数波动，建议解锁 PRO 获取精准策略
+                </div>
+            </div>
+
+            <div class="mstr-v3-footer">
+                <span :class="['status-dot', { 'online': connOk }]"></span>
+                {{ connOk ? '云端链路正常 (' + lastTick + ')' : '连接已断开，正在重试...' }}
             </div>
         </div>
-    </Transition>
+
+        <div v-else class="mstr-v3-ball" @click="isCollapsed = false">
+            MSTR
+        </div>
+    </div>
 </template>
 
+<script setup>
+import { ref, onMounted } from 'vue'
+
+const isVisible = ref(true)
+const isCollapsed = ref(false)
+const isPro = ref(false)
+const premium = ref("---")
+const btcPrice = ref("---") // 对应模板中的 {{ btcPrice }}
+const mstrPrice = ref("---") // 对应模板中的 {{ mstrPrice }}
+const aiAdvice = ref("正在验证云端参数...")
+const connOk = ref(false)
+const lastTick = ref("")
+
+const syncData = async () => {
+    try {
+        // 1. 抓取 BTC
+        const btcRes = await fetch("https://api3.binance.com/api/v3/ticker/price?symbol=BTCUSDT");
+        const btcData = await btcRes.json();
+        const currentBtc = parseFloat(btcData.price);
+
+        // 2. 抓取 MSTR (通过 AllOrigins 代理)
+        const proxyUrl = "https://api.allorigins.win/get?url=" + encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/MSTR");
+        const mstrRes = await fetch(proxyUrl);
+        const mstrProxyData = await mstrRes.json();
+
+        // 解析嵌套 JSON
+        const mstrRaw = JSON.parse(mstrProxyData.contents);
+        const currentMstr = mstrRaw.chart.result[0].meta.regularMarketPrice;
+
+        // 3. 执行计算 (2026 最新参数)
+        const mstrTotalBtc = 717131;
+        const mstrTotalShares = 366114000;
+        const navPerShare = (mstrTotalBtc * currentBtc) / mstrTotalShares;
+        const premiumVal = ((currentMstr / navPerShare) - 1) * 100;
+
+        // 4. 【关键修正】变量名必须与 ref 定义的一致！
+        premium.value = premiumVal.toFixed(2);
+        btcPrice.value = currentBtc.toLocaleString(); // 删掉 Display
+        mstrPrice.value = currentMstr.toFixed(2);     // 删掉 Display
+
+        // 更新状态和时间
+        connOk.value = true;
+        lastTick.value = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+
+        if (premiumVal > 20) {
+            aiAdvice.value = "警告：当前溢价过高，注意回撤风险。";
+        } else {
+            aiAdvice.value = "当前溢价处于 2026 合理区间。";
+        }
+
+    } catch (e) {
+        console.error("同步失败:", e);
+        connOk.value = false;
+    }
+}
+
+// 在 script setup 中添加这个函数
+const updateLocalStatus = async () => {
+    const d = await chrome.storage.local.get(['mstr_pro_status', 'mstr_panel_visible'])
+    isPro.value = !!d.mstr_pro_status
+    isVisible.value = d.mstr_panel_visible !== false
+    console.log("状态已更新：", { isPro: isPro.value, isVisible: isVisible.value })
+}
+
+onMounted(() => {
+    updateLocalStatus(); // 1. 启动时先读一次
+    syncData();
+    setInterval(syncData, 5000);
+
+    // 2. 【关键】监听 storage 变化，Popup 一改，这里立刻有反应
+    chrome.storage.onChanged.addListener((changes) => {
+        if (changes.mstr_pro_status || changes.mstr_panel_visible) {
+            updateLocalStatus();
+        }
+    })
+})
+</script>
+
 <style scoped>
-/* 渐变消失动画 */
-.fade-enter-active,
-.fade-leave-active {
-    transition: opacity 0.3s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-    opacity: 0;
-}
-
-.mstr-card-pro {
-    position: fixed !important;
+.mstr-v3-container {
+    position: fixed;
     top: 20px;
     right: 20px;
-    width: 220px;
-    background: rgba(18, 18, 18, 0.98) !important;
-    color: #fff !important;
-    padding: 18px;
-    border-radius: 16px;
+    z-index: 9999999;
+}
+
+.mstr-v3-card {
+    width: 260px;
+    background: #080808;
     border: 1px solid #333;
-    z-index: 2147483647 !important;
-    font-family: sans-serif;
+    border-radius: 12px;
+    color: #fff;
+    padding: 15px;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
-    backdrop-filter: blur(10px);
 }
 
-/* 关闭按钮样式 */
-.close-btn {
-    position: absolute;
-    top: 8px;
-    left: 8px;
-    background: transparent;
-    border: none;
-    color: #444;
-    font-size: 18px;
-    cursor: pointer;
-    line-height: 1;
-    padding: 0;
-    transition: color 0.2s;
-}
-
-.close-btn:hover {
-    color: #ff4444;
-}
-
-.mstr-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-    padding-left: 15px;
-}
-
-.brand {
+.premium-val {
+    font-size: 42px;
     font-weight: 900;
-    font-size: 14px;
-    letter-spacing: 0.5px;
+    color: #ff4444;
+    margin: 5px 0;
+}
+
+.premium-val.error-state {
+    color: #222;
 }
 
 .gold {
     color: #f5d547;
 }
 
-.upgrade-btn {
+.stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.stat-item {
+    background: #111;
+    padding: 8px;
+    border-radius: 6px;
+}
+
+.stat-label {
+    font-size: 10px;
+    color: #555;
+    display: block;
+}
+
+.stat-value {
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.ai-box-v3 {
+    background: #111;
+    border-left: 3px solid #f5d547;
+    padding: 10px;
+    margin-top: 15px;
+    border-radius: 4px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    background: #f00;
+    margin-right: 5px;
+}
+
+.status-dot.online {
+    background: #39d353;
+}
+
+.mstr-v3-ball {
+    width: 44px;
+    height: 44px;
     background: #f5d547;
     color: #000;
-    font-size: 10px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     font-weight: bold;
-    padding: 3px 8px;
-    border-radius: 4px;
     cursor: pointer;
-}
-
-.price-section {
-    margin-bottom: 15px;
-}
-
-.row {
-    display: flex;
-    justify-content: space-between;
-    font-size: 13px;
-    margin-bottom: 8px;
-    color: #aaa;
-}
-
-.num {
-    color: #fff;
-    font-weight: 600;
-    font-family: monospace;
-}
-
-.premium-box {
-    background: #000;
-    padding: 15px;
-    border-radius: 12px;
-    border: 1px solid #222;
-    text-align: center;
-}
-
-.p-title {
-    font-size: 10px;
-    color: #666;
-    margin-bottom: 8px;
-}
-
-.p-value {
-    font-size: 32px;
-    font-weight: 900;
-    color: #28a745;
-}
-
-.risk .p-value {
-    color: #ff4444;
-}
-
-.p-progress {
-    height: 4px;
-    background: #222;
-    border-radius: 2px;
-    margin-top: 12px;
-    overflow: hidden;
-}
-
-.p-bar {
-    height: 100%;
-    background: #28a745;
-    transition: width 0.6s ease;
-}
-
-.risk .p-bar {
-    background: #ff4444;
-}
-
-.footer {
-    display: flex;
-    justify-content: space-between;
-    font-size: 9px;
-    color: #333;
-    margin-top: 15px;
 }
 </style>
