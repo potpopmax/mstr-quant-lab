@@ -1,49 +1,37 @@
 <template>
-    <div v-if="isVisible" class="mstr-v3-container">
-        <div v-if="!isCollapsed" class="mstr-v3-card">
-            <div class="mstr-v3-header">
-                <span class="mstr-v3-logo">MSTR<span class="gold">QUANT</span></span>
-                <div class="mstr-v3-controls">
-                    <span v-if="isPro" class="vip-badge">PRO ACTIVE</span>
-                    <button class="close-btn" @click="isCollapsed = true">✕</button>
+    <div v-if="isVisible" class="mstr-overlay">
+        <div v-if="!isCollapsed" class="mstr-glass-card" @click="isCollapsed = true">
+            <div class="card-header">
+                <div class="brand">MSTR<span class="gold">QUANT</span> <span class="badge">LIVE</span></div>
+                <div class="sync-indicator">
+                    <span class="dot" :class="{ 'active': isLoaded }"></span>
                 </div>
             </div>
 
-            <div class="mstr-v3-body">
-                <div class="label">实时溢价 (动态计算)</div>
-                <div :class="['premium-val', { 'error-state': !connOk }]">
-                    {{ connOk ? premium + '%' : '---' }}
-                </div>
-
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <span class="stat-label">MSTR 股价</span>
-                        <span class="stat-value">${{ mstrPrice }}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">BTC 价格</span>
-                        <span class="stat-value">${{ btcPrice }}</span>
-                    </div>
-                </div>
-
-                <div v-if="isPro" class="ai-box-v3">
-                    <div class="ai-title">✨ AI 实时内参</div>
-                    <p>{{ aiAdvice }}</p>
-                </div>
-
-                <div v-if="!isPro" class="pay-banner">
-                    🔒 系统检测到参数波动，建议解锁 PRO 获取精准策略
-                </div>
+            <div class="main-val" :class="premium > 25 ? 'red' : 'green'">
+                <div class="val-label">PREMIUM</div>
+                <div class="val-num">{{ isLoaded ? premium.toFixed(2) + '%' : '•••' }}</div>
             </div>
 
-            <div class="mstr-v3-footer">
-                <span :class="['status-dot', { 'online': connOk }]"></span>
-                {{ connOk ? '云端链路正常 (' + lastTick + ')' : '连接已断开，正在重试...' }}
+            <div class="price-grid">
+                <div class="p-box"><span class="p-label">MSTR REAL</span><span class="p-num">${{ mstrPrice }}</span>
+                </div>
+                <div class="p-box"><span class="p-label">BTC REAL</span><span class="p-num">${{ btcPrice }}</span></div>
+            </div>
+
+            <div class="ai-insight">
+                <p>{{ isLoaded ? (premium > 25 ? "High Premium: Exercise Caution." : "Healthy Zone: Optimal Holding.") :
+                    "Calibrating Data..." }}</p>
+            </div>
+
+            <div class="footer-info">
+                <span>SYNCED: {{ lastTick }}</span>
             </div>
         </div>
 
-        <div v-else class="mstr-v3-ball" @click="isCollapsed = false">
-            MSTR
+        <div v-else class="mstr-ball" @click="isCollapsed = false">
+            <span class="ball-text">M</span>
+            <div class="pulse"></div>
         </div>
     </div>
 </template>
@@ -51,169 +39,205 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 
-const isVisible = ref(true)
-const isCollapsed = ref(false)
-const isPro = ref(false)
-const premium = ref("---")
-const btcPrice = ref("---") // 对应模板中的 {{ btcPrice }}
-const mstrPrice = ref("---") // 对应模板中的 {{ mstrPrice }}
-const aiAdvice = ref("正在验证云端参数...")
-const connOk = ref(false)
-const lastTick = ref("")
+const isVisible = ref(true); const isCollapsed = ref(false); const isLoaded = ref(false);
+const premium = ref(0); const mstrPrice = ref(0); const btcPrice = ref(0); const lastTick = ref("");
 
 const syncData = async () => {
     try {
-        // 1. 抓取 BTC
-        const btcRes = await fetch("https://api3.binance.com/api/v3/ticker/price?symbol=BTCUSDT");
-        const btcData = await btcRes.json();
-        const currentBtc = parseFloat(btcData.price);
-
-        // 2. 抓取 MSTR (通过 AllOrigins 代理)
-        const proxyUrl = "https://api.allorigins.win/get?url=" + encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/MSTR");
-        const mstrRes = await fetch(proxyUrl);
-        const mstrProxyData = await mstrRes.json();
-
-        // 解析嵌套 JSON
-        const mstrRaw = JSON.parse(mstrProxyData.contents);
-        const currentMstr = mstrRaw.chart.result[0].meta.regularMarketPrice;
-
-        // 3. 执行计算 (2026 最新参数)
-        const mstrTotalBtc = 717131;
-        const mstrTotalShares = 366114000;
-        const navPerShare = (mstrTotalBtc * currentBtc) / mstrTotalShares;
-        const premiumVal = ((currentMstr / navPerShare) - 1) * 100;
-
-        // 4. 【关键修正】变量名必须与 ref 定义的一致！
-        premium.value = premiumVal.toFixed(2);
-        btcPrice.value = currentBtc.toLocaleString(); // 删掉 Display
-        mstrPrice.value = currentMstr.toFixed(2);     // 删掉 Display
-
-        // 更新状态和时间
-        connOk.value = true;
-        lastTick.value = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-
-        if (premiumVal > 20) {
-            aiAdvice.value = "警告：当前溢价过高，注意回撤风险。";
-        } else {
-            aiAdvice.value = "当前溢价处于 2026 合理区间。";
-        }
-
-    } catch (e) {
-        console.error("同步失败:", e);
-        connOk.value = false;
-    }
-}
-
-// 在 script setup 中添加这个函数
-const updateLocalStatus = async () => {
-    const d = await chrome.storage.local.get(['mstr_pro_status', 'mstr_panel_visible'])
-    isPro.value = !!d.mstr_pro_status
-    isVisible.value = d.mstr_panel_visible !== false
-    console.log("状态已更新：", { isPro: isPro.value, isVisible: isVisible.value })
+        const res = await fetch("https://twilight-glade-6711.potpop-max.workers.dev/get-all-data")
+        const data = await res.json()
+        if (data.success && data.btcPrice > 0) {
+            const nav = (data.btcHoldings * data.btcPrice) / data.totalShares
+            premium.value = ((data.mstrPrice / nav) - 1) * 100
+            mstrPrice.value = data.mstrPrice.toFixed(2)
+            btcPrice.value = data.btcPrice.toLocaleString()
+            lastTick.value = data.serverTime
+            isLoaded.value = true
+        } else { isLoaded.value = false }
+    } catch (e) { isLoaded.value = false }
 }
 
 onMounted(() => {
-    updateLocalStatus(); // 1. 启动时先读一次
+    chrome.storage.local.get(['mstr_panel_visible'], (d) => { isVisible.value = d.mstr_panel_visible !== false })
+    chrome.storage.onChanged.addListener((c) => { if (c.mstr_panel_visible) isVisible.value = c.mstr_panel_visible.newValue })
     syncData();
-    setInterval(syncData, 5000);
-
-    // 2. 【关键】监听 storage 变化，Popup 一改，这里立刻有反应
-    chrome.storage.onChanged.addListener((changes) => {
-        if (changes.mstr_pro_status || changes.mstr_panel_visible) {
-            updateLocalStatus();
-        }
-    })
+    setInterval(syncData, 15000);
 })
 </script>
 
 <style scoped>
-.mstr-v3-container {
+.mstr-overlay {
     position: fixed;
     top: 20px;
     right: 20px;
-    z-index: 9999999;
+    z-index: 2147483647;
+    font-family: 'Inter', sans-serif;
+    pointer-events: auto;
 }
 
-.mstr-v3-card {
-    width: 260px;
-    background: #080808;
-    border: 1px solid #333;
-    border-radius: 12px;
+.mstr-glass-card {
+    width: 210px;
+    background: rgba(10, 10, 10, 0.85);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 18px;
     color: #fff;
-    padding: 15px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+    cursor: pointer;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.premium-val {
-    font-size: 42px;
+.mstr-glass-card:hover {
+    border-color: rgba(245, 213, 71, 0.3);
+    transform: translateY(-2px);
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.brand {
     font-weight: 900;
-    color: #ff4444;
-    margin: 5px 0;
-}
-
-.premium-val.error-state {
-    color: #222;
+    font-size: 11px;
+    letter-spacing: 0.5px;
 }
 
 .gold {
     color: #f5d547;
 }
 
-.stats-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-    margin-top: 15px;
-}
-
-.stat-item {
-    background: #111;
-    padding: 8px;
-    border-radius: 6px;
-}
-
-.stat-label {
-    font-size: 10px;
-    color: #555;
-    display: block;
-}
-
-.stat-value {
-    font-size: 12px;
+.badge {
+    font-size: 8px;
+    background: #39d353;
+    color: #000;
+    padding: 1px 4px;
+    border-radius: 3px;
+    margin-left: 5px;
     font-weight: bold;
 }
 
-.ai-box-v3 {
-    background: #111;
-    border-left: 3px solid #f5d547;
+.main-val {
+    text-align: center;
+    margin: 18px 0;
+}
+
+.val-label {
+    font-size: 9px;
+    color: #555;
+    letter-spacing: 1px;
+}
+
+.val-num {
+    font-size: 34px;
+    font-weight: 900;
+    line-height: 1;
+    margin-top: 5px;
+}
+
+.green {
+    color: #39d353;
+}
+
+.red {
+    color: #ff4444;
+}
+
+.price-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.p-box {
+    background: rgba(255, 255, 255, 0.03);
     padding: 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.p-label {
+    font-size: 8px;
+    color: #444;
+    display: block;
+    margin-bottom: 3px;
+}
+
+.p-num {
+    font-size: 11px;
+    font-weight: bold;
+    color: #ccc;
+}
+
+.ai-insight {
     margin-top: 15px;
-    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.02);
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 10px;
+    color: #888;
+    border-left: 2px solid #333;
 }
 
-.status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    display: inline-block;
-    background: #f00;
-    margin-right: 5px;
+.footer-info {
+    margin-top: 12px;
+    font-size: 8px;
+    color: #333;
+    text-align: right;
 }
 
-.status-dot.online {
-    background: #39d353;
-}
-
-.mstr-v3-ball {
+.mstr-ball {
     width: 44px;
     height: 44px;
     background: #f5d547;
-    color: #000;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: bold;
     cursor: pointer;
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+    position: relative;
+}
+
+.ball-text {
+    color: #000;
+    font-weight: 900;
+    font-size: 16px;
+}
+
+.pulse {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    border: 2px solid #f5d547;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+        opacity: 0.5;
+    }
+
+    100% {
+        transform: scale(1.6);
+        opacity: 0;
+    }
+}
+
+.dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #222;
+}
+
+.dot.active {
+    background: #39d353;
+    box-shadow: 0 0 5px #39d353;
 }
 </style>
